@@ -92,7 +92,7 @@ def actualizar_desde_matriz():
         } for i in inventario_real
     ]
 
-        guardar_inventario(inventario_final)
+    guardar_inventario(inventario_final)
     return jsonify({"status": "actualizado"})
 
 
