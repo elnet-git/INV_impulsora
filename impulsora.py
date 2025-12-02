@@ -1,3 +1,4 @@
+# mixquiahuala.py
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 import threading
@@ -20,45 +21,34 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph
 from reportlab.pdfgen import canvas
-import threading
 from flask_cors import CORS
-import requests
 import shutil
+import base64
+
+# ===============================
+# CONFIG GITHUB (API) - EDITA TOKEN
+# ===============================
+GITHUB_TOKEN_API = os.getenv("GITHUB_TOKEN_API")  # variable de entorno
+GITHUB_REPO_API = "elnet-git/INV_impulsora"         # repositorio (user/repo)
+GITHUB_PATH_API = "Archivos/Export/inventario_render.json"
+GITHUB_BRANCH = "main"
 
 # ===============================
 # TAREA AUTOMÁTICA
 # ===============================
 def tarea_automatica():
-    """Genera JSON y sube a GitHub automáticamente."""
+    """Genera JSON y sube a GitHub automáticamente (CLI + API)."""
     if generar_json_desde_excel():
-        subir_a_github()
-        enviar_inventario_a_render()
-
-# ===============================
-# FUNCIONES PRINCIPALES
-# ===============================
-def enviar_inventario_a_render():
-    if not ARCHIVO_JSON.exists():
-        print(f"❌ No se encontró el archivo: {ARCHIVO_JSON}")
-        return False
-
-    try:
-        with open(ARCHIVO_JSON, "r", encoding="utf-8") as f:
-            inventario_lista = json.load(f)
-
-        res = requests.post(
-            "https://proxi-jqmotors.onrender.com/inventario",
-            json={
-                "agencia": "matriz",  # Cambia si es otra agencia
-                "inventario": inventario_lista
-            },
-            timeout=10
-        )
-        print("✅ Envío a Render:", res.status_code, res.text)
-        return True
-    except Exception as e:
-        print("❌ Error al conectar con Render:", e)
-        return False
+        # Subir mediante git CLI (ya existente)
+        try:
+            subir_a_github()
+        except Exception as e:
+            print("❌ Error en subir_a_github (CLI):", e)
+        # Subir mediante API (nuevo) - opción redundante/segura
+        try:
+            subir_json_a_github_api()
+        except Exception as e:
+            print("❌ Error subir_json_a_github_api:", e)
 
 # ===============================
 # SERVIDOR FLASK VACÍO
@@ -67,7 +57,7 @@ app_flask = Flask(__name__)
 CORS(app_flask)
 
 # ===============================
-# FUNCIONES DE GITHUB EN SEGUNDO PLANO
+# FUNCIONES DE GITHUB EN SEGUNDO PLANO (CLI ya existente)
 # ===============================
 def actualizar_github():
     try:
@@ -106,7 +96,7 @@ for carpeta in [CARPETA_DATOS, CARPETA_EXCEL, CARPETA_EXPORT, LOGO_DIR, CARPETA_
 
 REPO_DIR = resource_path(".")
 ARCHIVO_EXCEL = CARPETA_EXCEL / "inventario.xlsx"
-ARCHIVO_JSON = CARPETA_EXPORT / "inventario_render.json"  # JSON que se envía a Render
+ARCHIVO_JSON = CARPETA_EXPORT / "inventario_render.json"  # JSON local exportado
 BRANCH = "main"
 
 ARCHIVO_INVENTARIO = CARPETA_EXCEL / "inventario.xlsx"
@@ -220,8 +210,16 @@ def importar_inventario(ruta_excel: Path, controller=None):
     print(f"✅ Inventario copiado a {destino}")
 
     generar_json_desde_excel()
-    subir_a_github()
-    enviar_inventario_a_render()
+    # Subir por git CLI
+    try:
+        subir_a_github()
+    except Exception as e:
+        print("❌ Error en subir_a_github (CLI):", e)
+    # Subir por API
+    try:
+        subir_json_a_github_api()
+    except Exception as e:
+        print("❌ Error subir_json_a_github_api:", e)
 
     if controller:
         controller.inventario_df = load_inventario_file()
@@ -246,11 +244,15 @@ def generar_json_desde_excel():
         if ARCHIVO_EXCEL.exists():
             df = pd.read_excel(ARCHIVO_EXCEL, engine="openpyxl")
             columnas = ["codigo", "descripcion", "stock"]
+            # validar columnas presentes
+            for c in columnas:
+                if c not in df.columns:
+                    df[c] = ""
             df = df[columnas]
-            df["agencia"] = "matriz"  # Cambia según tu agencia
+            df["agencia"] = "mixquiahuala"  # Cambia según tu agencia
             ARCHIVO_JSON.parent.mkdir(parents=True, exist_ok=True)
             df.to_json(ARCHIVO_JSON, orient="records", indent=4, force_ascii=False)
-            print(f"[{datetime.now()}] ✅ JSON generado: {ARCHIVO_JSON} con agencia 'matriz'")
+            print(f"[{datetime.now()}] ✅ JSON generado: {ARCHIVO_JSON} con agencia 'mixquiahuala'")
             return True
         else:
             print(f"❌ Archivo Excel no encontrado: {ARCHIVO_EXCEL}")
@@ -260,7 +262,7 @@ def generar_json_desde_excel():
         return False
 
 # ===============================
-# SUBIR A GITHUB
+# SUBIR A GITHUB (CLI)
 # ===============================
 def subir_a_github():
     try:
@@ -280,6 +282,70 @@ def subir_a_github():
     except Exception as e:
         print(f"❌ Error subiendo a GitHub: {e}")
 
+# ===============================
+# SUBIR JSON A GITHUB VIA API
+# ===============================
+def subir_json_a_github_api():
+    if not ARCHIVO_JSON.exists():
+        print(f"❌ No existe {ARCHIVO_JSON}, nada que subir via API.")
+        return False
+
+    if not GITHUB_TOKEN_API:
+        print("❌ ERROR: no se encontró la variable de entorno GITHUB_TOKEN_API")
+        return False
+
+    with open(ARCHIVO_JSON, "r", encoding="utf-8") as f:
+        contenido_json = f.read()
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO_API}/contents/{GITHUB_PATH_API}"
+    contenido_b64 = base64.b64encode(contenido_json.encode("utf-8")).decode("utf-8")
+
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN_API}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    # obtener SHA si el archivo ya existe
+    resp_get = requests.get(url + f"?ref={GITHUB_BRANCH}", headers=headers, timeout=10)
+    payload = {
+        "message": f"Actualización inventario {datetime.now().isoformat()}",
+        "content": contenido_b64,
+        "branch": GITHUB_BRANCH
+    }
+
+    if resp_get.status_code == 200:
+        sha = resp_get.json().get("sha")
+        if sha:
+            payload["sha"] = sha
+
+    resp_put = requests.put(url, headers=headers, json=payload, timeout=15)
+
+    if resp_put.status_code in (200, 201):
+        print(f"✅ JSON subido a GitHub via API. Status: {resp_put.status_code}")
+        return True
+    else:
+        print(f"❌ Error subiendo a GitHub via API. Status: {resp_put.status_code} - {resp_put.text}")
+        return False# ===============================
+# Helper: tarea que se lanza en hilo tras cambios locales
+# ===============================
+def tarea_post_update_en_hilo():
+    """Genera JSON y empuja (CLI + API) en segundo plano tras una modificación local."""
+    try:
+        if generar_json_desde_excel():
+            try:
+                subir_a_github()
+            except Exception as e:
+                print("❌ Error en subir_a_github (CLI):", e)
+            try:
+                subir_json_a_github_api()
+            except Exception as e:
+                print("❌ Error en subir_json_a_github_api:", e)
+    except Exception as e:
+        print("❌ Error en tarea_post_update_en_hilo:", e)
+
+# ======================================================================
+#                           CLASES (CONTENIDO PRINCIPAL)
+# ======================================================================
 
 class Stock(ttk.Frame):
     def __init__(self, parent, controller=None):
@@ -364,6 +430,10 @@ class Stock(ttk.Frame):
             save_df(ARCHIVO_INVENTARIO, df_new)
             self.cargar_datos()
             messagebox.showinfo('Éxito','Inventario importado correctamente')
+
+            # Lanzar tarea en hilo para generar JSON y subir a GitHub
+            threading.Thread(target=tarea_post_update_en_hilo, daemon=True).start()
+
         except Exception as e:
             messagebox.showerror('Error', str(e))
 
@@ -486,21 +556,12 @@ class Stock(ttk.Frame):
             self.cargar_datos()
             messagebox.showinfo("OK", f"{tipo.capitalize()} {cantidad} de {codigo}")
 
-            # enviar a Render en hilo
-            row = df.loc[idx]
-            threading.Thread(target=self.enviar_a_render, args=({
-                "codigo": str(row["codigo"]),
-                "descripcion": str(row.get("descripcion", "")),
-                "ubicacion": str(row.get("ubicacion", "")),
-                "stock": int(row.get("stock", 0)),
-                "precio": float(row.get("precio", 0))
-            },), daemon=True).start()
+            # Lanzar tarea en hilo que genere JSON y suba a GitHub
+            threading.Thread(target=tarea_post_update_en_hilo, daemon=True).start()
+
         else:
             messagebox.showwarning("No encontrado","Código no encontrado")
 
-    # --------------------------------------------------------
-    # AGREGAR / BORRAR ARTÍCULO (Unificado)
-    # --------------------------------------------------------
     def agregar_articulo_completo(self):
         codigo = self.art_codigo.get().strip()
         desc = self.art_desc.get().strip()
@@ -536,20 +597,9 @@ class Stock(ttk.Frame):
         self.cargar_datos()
         messagebox.showinfo("OK","Artículo agregado/actualizado")
 
-        # enviar a Render en hilo
-        row = df.loc[idx]
-        threading.Thread(target=self.enviar_a_render, args=({
-            "codigo": str(row["codigo"]),
-            "descripcion": str(row.get("descripcion", "")),
-            "ubicacion": str(row.get("ubicacion", "")),
-            "stock": int(row.get("stock", 0)),
-            "precio": float(row.get("precio", 0))
-        },), daemon=True).start()
+        # Lanzar tarea en hilo que genere JSON y suba a GitHub
+        threading.Thread(target=tarea_post_update_en_hilo, daemon=True).start()
 
-
-    # --------------------------------------------------------
-    # BORRAR SELECCIONADO
-    # --------------------------------------------------------
     def borrar_seleccionado(self):
         sel = self.tree.selection()
         if not sel:
@@ -563,24 +613,8 @@ class Stock(ttk.Frame):
         self.cargar_datos()
         messagebox.showinfo("OK", "Artículo(s) borrado(s)")
 
-
-
-    # --------------------------------------------------------
-    # ENVIAR A RENDER
-    # --------------------------------------------------------
-    def enviar_a_render(self, articulo):
-        url = "https://jq-motors-inventarios.onrender.com/inventario"
-        try:
-            resp = requests.post(url, json=articulo, timeout=5)
-            if resp.status_code==200:
-                print(f"Sincronizado con Render: {articulo['codigo']}")
-            else:
-                print(f"Error al enviar a Render: {resp.status_code}")
-        except Exception as e:
-            print(f"No se pudo enviar a Render: {e}")
-
 # --------------------
-# Clase Ventas
+# Clase Ventas (sin cambios funcionales relevantes)
 # --------------------
 class Ventas(ttk.Frame):
     def __init__(self, parent, controller=None):
@@ -1237,9 +1271,9 @@ class Taller(ttk.Frame):
 class AppUnificada(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("JQ MOTORS SISTEM - MATRIZ")
+        self.title("JQ MOTORS SISTEM - Impulsora")
         self.geometry("1300x800")
-        ttk.Label(self, text="🚀 JQ MOTORS MATRIZ",
+        ttk.Label(self, text="🚀 JQ MOTORS IMPULSORA",
                   font=("Segoe UI", 16, "bold")).pack(pady=10)
         # Notebook principal
         self.notebook = ttk.Notebook(self)
@@ -1257,10 +1291,10 @@ class AppUnificada(tk.Tk):
         self.notebook.add(self.tab_cotizacion, text="Cotización")
         self.notebook.add(self.tab_taller, text="Taller")
         print("Tkinter iniciado correctamente.")
+
 # ==========================================================================  
 #                    SERVIDOR FLASK (API REST)  
-# ==========================================================================  
-
+# ==========================================================================
 def iniciar_flask():
     app_flask.run(host="0.0.0.0", port=5002, debug=False)
 
@@ -1275,24 +1309,18 @@ if __name__ == "__main__":
     except Exception as e:
         print("❌ Error generando JSON:", e)
 
+    # --- Subir con git CLI (existente) ---
     try:
         subir_a_github()
-        print("GitHub actualizado correctamente")
+        print("GitHub actualizado correctamente (CLI)")
     except Exception as e:
-        print("❌ Error subiendo a GitHub:", e)
+        print("❌ Error subiendo a GitHub (CLI):", e)
 
+    # --- Subir con API (nuevo, redundante/backup) ---
     try:
-        enviar_inventario_a_render()
-        print("Inventario enviado a Render exitosamente")
+        subir_json_a_github_api()
     except Exception as e:
-        print("❌ Error enviando a Render:", e)
-
-
-    def iniciar_flask():
-        from werkzeug.serving import make_server
-        server = make_server("0.0.0.0", 5002, app_flask)
-        server.serve_forever()
-   
+        print("❌ Error subiendo a GitHub via API:", e)
 
     # Inicia schedule para la tarea automática cada 10 minutos
     import schedule, time
