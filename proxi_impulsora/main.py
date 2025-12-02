@@ -6,8 +6,7 @@ app = Flask(__name__)
 CORS(app)
 
 INVENTARIO_FILE = "inventarios_recibidos.json"
-JSON_AGENCIA = r"C:\Users\infob\Desktop\impulsora\inventario_render.json"
-
+JSON_AGENCIA = r"C:\Users\infob\Desktop\impulsora\Archivos\Export\inventario_render.json"
 def cargar_inventario():
     if not os.path.exists(INVENTARIO_FILE):
         return []
