@@ -10,5 +10,11 @@
         "descripcion":"G",
         "stock":65,
         "agencia":"impulsora"
+    },
+    {
+        "codigo":"GMJ",
+        "descripcion":"FHM",
+        "stock":54,
+        "agencia":"impulsora"
     }
 ]
