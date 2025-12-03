@@ -4,5 +4,11 @@
         "descripcion":"wefwe",
         "stock":5,
         "agencia":"impulsora"
+    },
+    {
+        "codigo":"IOH",
+        "descripcion":"G",
+        "stock":65,
+        "agencia":"impulsora"
     }
 ]
