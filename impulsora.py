@@ -36,18 +36,22 @@ def resource_path(relative_path):
         base_path = Path(__file__).parent.resolve()
     return base_path / relative_path
 
+# Carpetas principales
 CARPETA_DATOS = resource_path("Archivos")
 CARPETA_EXCEL = CARPETA_DATOS / "Excel"
 CARPETA_EXPORT = CARPETA_DATOS / "Export"
 LOGO_DIR = CARPETA_DATOS / "LOGO"
 CARPETA_DESCARGAS = Path.home() / "Downloads"
+CARPETA_DATA = resource_path("data")  # carpeta para JSON
 
-for carpeta in [CARPETA_DATOS, CARPETA_EXCEL, CARPETA_EXPORT, LOGO_DIR, CARPETA_DESCARGAS]:
+# Crear carpetas si no existen
+for carpeta in [CARPETA_DATOS, CARPETA_EXCEL, CARPETA_EXPORT, LOGO_DIR, CARPETA_DESCARGAS, CARPETA_DATA]:
     carpeta.mkdir(parents=True, exist_ok=True)
 
+# Archivos
 REPO_DIR = resource_path(".")
 ARCHIVO_EXCEL = CARPETA_EXCEL / "inventario.xlsx"
-ARCHIVO_JSON = CARPETA_EXPORT / "inventario_render.json"
+ARCHIVO_JSON = CARPETA_DATA / "inventario_render.json"
 BRANCH = "main"
 
 ARCHIVO_INVENTARIO = CARPETA_EXCEL / "inventario.xlsx"
@@ -56,14 +60,6 @@ ARCHIVO_PEDIDOS = CARPETA_EXCEL / "pedidos.xlsx"
 ARCHIVO_TALLER = CARPETA_EXCEL / "taller.xlsx"
 ARCHIVO_COTIZACIONES = CARPETA_EXCEL / "cotizaciones.xlsx"
 ARCHIVO_MOTOS = CARPETA_EXCEL / "motos_insumos.xlsx"
-
-# ===============================
-# CONFIG GITHUB
-# ===============================
-GITHUB_TOKEN_API = os.getenv("GITHUB_TOKEN_API")
-GITHUB_REPO_API = "elnet-git/INV_impulsora"
-GITHUB_PATH_API = "inventario_render.json"
-GITHUB_BRANCH = "main"
 
 # ===============================
 # TAREA AUTOMÁTICA
@@ -190,14 +186,22 @@ def seleccionar_excel():
 def generar_json_desde_excel():
     try:
         if ARCHIVO_EXCEL.exists():
+            # Leer Excel
             df = pd.read_excel(ARCHIVO_EXCEL, engine="openpyxl")
+
+            # Columnas necesarias
             columnas = ["codigo", "descripcion", "stock"]
             for c in columnas:
                 if c not in df.columns:
                     df[c] = ""
+
             df = df[columnas]
             df["agencia"] = "impulsora"
+
+            # Crear carpeta data si no existe
             ARCHIVO_JSON.parent.mkdir(parents=True, exist_ok=True)
+
+            # Guardar JSON
             df.to_json(ARCHIVO_JSON, orient="records", indent=4, force_ascii=False)
             print(f"[{datetime.now()}] ✅ JSON generado: {ARCHIVO_JSON}")
             return True
@@ -207,7 +211,6 @@ def generar_json_desde_excel():
     except Exception as e:
         print("❌ Error generando JSON:", e)
         return False
-
 # ===============================
 # SUBIR A GITHUB (CLI + API)
 # ===============================
@@ -487,6 +490,11 @@ class Stock(ttk.Frame):
 
         else:
             messagebox.showwarning("No encontrado","Código no encontrado")
+            # Limpiar entradas
+            self.desc_codigo.delete(0, 'end')
+            self.desc_cantidad.delete(0, 'end')
+
+
 
     def agregar_articulo_completo(self):
         codigo = self.art_codigo.get().strip()
@@ -503,6 +511,13 @@ class Stock(ttk.Frame):
         if not codigo:
             messagebox.showwarning("Atención","Código requerido")
             return
+            # Limpiar entradas
+            self.art_codigo.delete(0, 'end')
+            self.art_desc.delete(0, 'end')
+            self.art_ubi.delete(0, 'end')
+            self.art_stock.delete(0, 'end')
+            self.art_precio.delete(0, 'end')
+
 
         df = load_inventario_file()
         columnas_ok = ["codigo", "descripcion", "ubicacion", "stock", "precio","libres","en_taller","nuevas_entradas"]
